@@ -181,11 +181,12 @@
         return;
       }
 
-      resultsDiv.innerHTML = `<h3>Results (${filtered.length} found):</h3><ul>` +
-  filtered.map(a => `<li><strong>${a.name}</strong>: ${a.address}, ${a.city}, ${a.state} ${a.postal} - ${a.distance} miles</li>`).join("") +
-  `</ul>`;
+      // Sort addresses by distance (closest first)
+      filtered.sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
 
-
+      resultsDiv.innerHTML = `<h3>Results (${filtered.length} found, sorted by distance):</h3><ul>` +
+      filtered.map(a => `<li><strong>${a.name}</strong>: ${a.address}, ${a.city}, ${a.state} ${a.postal} - ${a.distance} miles</li>`).join("") +
+      `</ul>`;
     }
   </script>
 </body>
