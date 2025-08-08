@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Address Radius Search Tool</title>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+     <header>
+     <img src="https://s3.amazonaws.com/smallvenueticketing/284799442448d8ddd4c962b591bce1b797d53ae5.png" alt="DRT Performance Tix Logo" class="logo">
+    <h1>Address Search</h1>
+  </header>
+  <input type="text" id="inputAddress" placeholder="Enter full address">
+  <input type="number" id="inputRadius" placeholder="Enter radius (in miles)">
+  <input type="file" id="addressFile" accept=".csv">
+  
+  <div class="filter-options">
+    <label>
+      <input type="checkbox" id="stateFilter" checked> 
+      Filter by same state (recommended for large datasets)
+    </label>
+    <div id="stateInfo" class="state-info"></div>
+  </div>
+  
+  <button onclick="processAddresses()">Search Addresses</button>
+
+  <div id="results"></div>
+
+  <script>
+    async function geocode(address) {
+  const response = await fetch("/geocode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address })
+  });
+
+  const data = await response.json();
+  if (data.results && data.results.length > 0) {
+    return data.results[0].geometry;
+  } else {
+    console.warn("Geocode failed for:", address);
+    return null;
+  }
+}
+
+
+    function getDistanceInMiles(coord1, coord2) {
+      const toRad = deg => deg * (Math.PI / 180);
+      const R = 3958.8; // Earth radius in miles
+      const dLat = toRad(coord2.lat - coord1.lat);
+      const dLon = toRad(coord2.lng - coord1.lng);
+      const lat1 = toRad(coord1.lat);
+      const lat2 = toRad(coord2.lat);
+
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+
+    function readCSV(file) {
+      return new Promise(resolve => {
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: results => resolve(results.data)
+        });
+      });
+    }
+
+    function extractStateFromAddress(address) {
+      // Try to extract state from the input address
+      // Look for common state patterns (2-letter abbreviations or full names)
+      const stateAbbreviations = {
+        'alabama': 'AL', 'alaska': 'AK', 'arizona': 'AZ', 'arkansas': 'AR', 'california': 'CA',
+        'colorado': 'CO', 'connecticut': 'CT', 'delaware': 'DE', 'florida': 'FL', 'georgia': 'GA',
+        'hawaii': 'HI', 'idaho': 'ID', 'illinois': 'IL', 'indiana': 'IN', 'iowa': 'IA',
+        'kansas': 'KS', 'kentucky': 'KY', 'louisiana': 'LA', 'maine': 'ME', 'maryland': 'MD',
+        'massachusetts': 'MA', 'michigan': 'MI', 'minnesota': 'MN', 'mississippi': 'MS', 'missouri': 'MO',
+        'montana': 'MT', 'nebraska': 'NE', 'nevada': 'NV', 'new hampshire': 'NH', 'new jersey': 'NJ',
+        'new mexico': 'NM', 'new york': 'NY', 'north carolina': 'NC', 'north dakota': 'ND', 'ohio': 'OH',
+        'oklahoma': 'OK', 'oregon': 'OR', 'pennsylvania': 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
+        'south dakota': 'SD', 'tennessee': 'TN', 'texas': 'TX', 'utah': 'UT', 'vermont': 'VT',
+        'virginia': 'VA', 'washington': 'WA', 'west virginia': 'WV', 'wisconsin': 'WI', 'wyoming': 'WY'
+      };
+
+      const lowerAddress = address.toLowerCase();
+      
+      // First check for 2-letter state codes
+      const stateMatch = address.match(/\b[A-Z]{2}\b/g);
+      if (stateMatch) {
+        const possibleState = stateMatch[stateMatch.length - 1]; // Take the last one found
+        if (Object.values(stateAbbreviations).includes(possibleState)) {
+          return possibleState;
+        }
+      }
+      
+      // Then check for full state names
+      for (const [fullName, abbrev] of Object.entries(stateAbbreviations)) {
+        if (lowerAddress.includes(fullName)) {
+          return abbrev;
+        }
+      }
+      
+      return null;
+    }
+
+    async function processAddresses() {
+      const inputAddress = document.getElementById("inputAddress").value.trim();
+      const radius = parseFloat(document.getElementById("inputRadius").value.trim());
+      const file = document.getElementById("addressFile").files[0];
+      const useStateFilter = document.getElementById("stateFilter").checked;
+      const resultsDiv = document.getElementById("results");
+      const stateInfoDiv = document.getElementById("stateInfo");
+
+      resultsDiv.innerHTML = "<p>Processing...</p>";
+      stateInfoDiv.innerHTML = "";
+
+      if (!inputAddress || isNaN(radius) || !file) {
+        resultsDiv.innerHTML = "<p style='color:red;'>Please enter an address, radius, and upload a file.</p>";
+        return;
+      }
+
+      // Extract state from input address for filtering
+      const inputState = extractStateFromAddress(inputAddress);
+      if (inputState) {
+        stateInfoDiv.innerHTML = `<small>Detected state: <strong>${inputState}</strong></small>`;
+      } else {
+        stateInfoDiv.innerHTML = `<small style="color: orange;">Could not detect state from address</small>`;
+      }
+      
+      const originCoords = await geocode(inputAddress);
+      if (!originCoords) {
+        resultsDiv.innerHTML = "<p style='color:red;'>Could not geocode input address.</p>";
+        return;
+      }
+
+      const addressList = await readCSV(file);
+      
+      // Pre-filter addresses by state if enabled and we can determine the input state
+      let addressesToProcess = addressList;
+      if (useStateFilter && inputState) {
+        addressesToProcess = addressList.filter(row => {
+          return row.state && row.state.toUpperCase() === inputState.toUpperCase();
+        });
+        console.log(`Filtered from ${addressList.length} to ${addressesToProcess.length} addresses in state ${inputState}`);
+        resultsDiv.innerHTML = `<p>Processing ${addressesToProcess.length} addresses in ${inputState} (filtered from ${addressList.length} total)...</p>`;
+      } else if (useStateFilter && !inputState) {
+        resultsDiv.innerHTML = `<p>State filtering enabled but could not detect state. Processing all ${addressList.length} addresses...</p>`;
+      } else {
+        console.log("State filtering disabled, processing all addresses");
+        resultsDiv.innerHTML = `<p>Processing all ${addressList.length} addresses...</p>`;
+      }
+
+      const filtered = [];
+      let processedCount = 0;
+
+      for (const row of addressesToProcess) {
+        const fullAddress = `${row.address}, ${row.city}, ${row.state} ${row.postal}`;
+        const coords = await geocode(fullAddress);
+        processedCount++;
+        
+        // Update progress every 10 addresses
+        if (processedCount % 10 === 0) {
+          resultsDiv.innerHTML = `<p>Processing... ${processedCount}/${addressesToProcess.length} addresses checked</p>`;
+        }
+        
+        if (!coords) continue;
+
+        const distance = getDistanceInMiles(originCoords, coords);
+        if (distance <= radius) {
+          filtered.push({ ...row, distance: distance.toFixed(2) });
+        }
+
+        // // Optional: Wait a bit between requests to avoid rate limiting
+        // await new Promise(r => setTimeout(r, 200)); // 200ms delay
+      }
+
+      if (filtered.length === 0) {
+        resultsDiv.innerHTML = "<p>No addresses found within that radius.</p>";
+        return;
+      }
+
+      resultsDiv.innerHTML = `<h3>Results (${filtered.length} found):</h3><ul>` +
+  filtered.map(a => `<li><strong>${a.name}</strong>: ${a.address}, ${a.city}, ${a.state} ${a.postal} - ${a.distance} miles</li>`).join("") +
+  `</ul>`;
+
+
+    }
+  </script>
+</body>
+</html>
