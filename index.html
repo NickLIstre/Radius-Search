@@ -86,7 +86,7 @@
 
       const lowerAddress = address.toLowerCase();
       
-      // First check for 2-letter state codes
+      // Check for 2-letter state codes
       const stateMatch = address.match(/\b[A-Z]{2}\b/g);
       if (stateMatch) {
         const possibleState = stateMatch[stateMatch.length - 1]; // Take the last one found
@@ -95,7 +95,7 @@
         }
       }
       
-      // Then check for full state names
+      // Check for full state names
       for (const [fullName, abbrev] of Object.entries(stateAbbreviations)) {
         if (lowerAddress.includes(fullName)) {
           return abbrev;
@@ -106,88 +106,94 @@
     }
 
     async function processAddresses() {
-      const inputAddress = document.getElementById("inputAddress").value.trim();
-      const radius = parseFloat(document.getElementById("inputRadius").value.trim());
-      const file = document.getElementById("addressFile").files[0];
-      const useStateFilter = document.getElementById("stateFilter").checked;
-      const resultsDiv = document.getElementById("results");
-      const stateInfoDiv = document.getElementById("stateInfo");
+  const inputAddress = document.getElementById("inputAddress").value.trim();
+  const radius = parseFloat(document.getElementById("inputRadius").value.trim());
+  const file = document.getElementById("addressFile").files[0];
+  const useStateFilter = document.getElementById("stateFilter").checked;
+  const resultsDiv = document.getElementById("results");
+  const stateInfoDiv = document.getElementById("stateInfo");
 
-      resultsDiv.innerHTML = "<p>Processing...</p>";
-      stateInfoDiv.innerHTML = "";
+  resultsDiv.innerHTML = "<p>Processing...</p>";
+  stateInfoDiv.innerHTML = "";
 
-      if (!inputAddress || isNaN(radius) || !file) {
-        resultsDiv.innerHTML = "<p style='color:red;'>Please enter an address, radius, and upload a file.</p>";
-        return;
-      }
+  if (!inputAddress || isNaN(radius) || !file) {
+    resultsDiv.innerHTML = "<p style='color:red;'>Please enter an address, radius, and upload a file.</p>";
+    return;
+  }
 
-      // Extract state from input address for filtering
-      const inputState = extractStateFromAddress(inputAddress);
-      if (inputState) {
-        stateInfoDiv.innerHTML = `<small>Detected state: <strong>${inputState}</strong></small>`;
-      } else {
-        stateInfoDiv.innerHTML = `<small style="color: orange;">Could not detect state from address</small>`;
-      }
-      
-      const originCoords = await geocode(inputAddress);
-      if (!originCoords) {
-        resultsDiv.innerHTML = "<p style='color:red;'>Could not geocode input address.</p>";
-        return;
-      }
+  // Extract state from input address for filtering
+  const inputState = extractStateFromAddress(inputAddress);
+  if (inputState) {
+    stateInfoDiv.innerHTML = `<small>Detected state: <strong>${inputState}</strong></small>`;
+  } else {
+    stateInfoDiv.innerHTML = `<small style="color: orange;">Could not detect state from address</small>`;
+  }
+  
+  const originCoords = await geocode(inputAddress);
+  if (!originCoords) {
+    resultsDiv.innerHTML = "<p style='color:red;'>Could not geocode input address.</p>";
+    return;
+  }
 
-      const addressList = await readCSV(file);
-      
-      // Pre-filter addresses by state if enabled and we can determine the input state
-      let addressesToProcess = addressList;
-      if (useStateFilter && inputState) {
-        addressesToProcess = addressList.filter(row => {
-          return row.state && row.state.toUpperCase() === inputState.toUpperCase();
-        });
-        console.log(`Filtered from ${addressList.length} to ${addressesToProcess.length} addresses in state ${inputState}`);
-        resultsDiv.innerHTML = `<p>Processing ${addressesToProcess.length} addresses in ${inputState} (filtered from ${addressList.length} total)...</p>`;
-      } else if (useStateFilter && !inputState) {
-        resultsDiv.innerHTML = `<p>State filtering enabled but could not detect state. Processing all ${addressList.length} addresses...</p>`;
-      } else {
-        console.log("State filtering disabled, processing all addresses");
-        resultsDiv.innerHTML = `<p>Processing all ${addressList.length} addresses...</p>`;
-      }
+  const addressList = await readCSV(file);
+  
+  // Pre-filter addresses by state if enabled and we can determine the input state
+  let addressesToProcess = addressList;
+  if (useStateFilter && inputState) {
+    addressesToProcess = addressList.filter(row => {
+      return row.state && row.state.toUpperCase() === inputState.toUpperCase();
+    });
+    console.log(`Filtered from ${addressList.length} to ${addressesToProcess.length} addresses in state ${inputState}`);
+    resultsDiv.innerHTML = `<p>Processing ${addressesToProcess.length} addresses in ${inputState} (filtered from ${addressList.length} total)...</p>`;
+  } else if (useStateFilter && !inputState) {
+    resultsDiv.innerHTML = `<p>State filtering enabled but could not detect state. Processing all ${addressList.length} addresses...</p>`;
+  } else {
+    console.log("State filtering disabled, processing all addresses");
+    resultsDiv.innerHTML = `<p>Processing all ${addressList.length} addresses...</p>`;
+  }
 
-      const filtered = [];
-      let processedCount = 0;
+  const filtered = [];
+  let processedCount = 0;
 
-      for (const row of addressesToProcess) {
-        const fullAddress = `${row.address}, ${row.city}, ${row.state} ${row.postal}`;
-        const coords = await geocode(fullAddress);
-        processedCount++;
-        
-        // Update progress every 10 addresses
-        if (processedCount % 10 === 0) {
-          resultsDiv.innerHTML = `<p>Processing... ${processedCount}/${addressesToProcess.length} addresses checked</p>`;
-        }
-        
-        if (!coords) continue;
-
-        const distance = getDistanceInMiles(originCoords, coords);
-        if (distance <= radius) {
-          filtered.push({ ...row, distance: distance.toFixed(2) });
-        }
-
-        // // Optional: Wait a bit between requests to avoid rate limiting
-        // await new Promise(r => setTimeout(r, 200)); // 200ms delay
-      }
-
-      if (filtered.length === 0) {
-        resultsDiv.innerHTML = "<p>No addresses found within that radius.</p>";
-        return;
-      }
-
-      // Sort addresses by distance (closest first)
-      filtered.sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
-
-      resultsDiv.innerHTML = `<h3>Results (${filtered.length} found, sorted by distance):</h3><ul>` +
-      filtered.map(a => `<li><strong>${a.name}</strong>: ${a.address}, ${a.city}, ${a.state} ${a.postal} - ${a.distance} miles</li>`).join("") +
-      `</ul>`;
+  for (const row of addressesToProcess) {
+    const fullAddress = `${row.address}, ${row.city}, ${row.state} ${row.postal}`;
+    const coords = await geocode(fullAddress);
+    processedCount++;
+    
+    // Update progress every 10 addresses
+    if (processedCount % 10 === 0) {
+      resultsDiv.innerHTML = `<p>Processing... ${processedCount}/${addressesToProcess.length} addresses checked</p>`;
     }
+    
+    if (!coords) continue;
+
+    const distance = getDistanceInMiles(originCoords, coords);
+    if (distance <= radius) {
+      filtered.push({ ...row, distance: distance.toFixed(2) });
+    }
+  }
+
+  if (filtered.length === 0) {
+    resultsDiv.innerHTML = "<p>No addresses found within that radius.</p>";
+    return;
+  }
+
+  // Remove duplicate addresses
+  const unique = {};
+  const deduped = filtered.filter(row => {
+    const key = `${row.address}|${row.city}|${row.state}|${row.postal}`;
+    if (unique[key]) return false;
+    unique[key] = true;
+    return true;
+  });
+
+  // Sort addresses by distance (closest first)
+  deduped.sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
+
+  resultsDiv.innerHTML = `<h3>Results (${deduped.length} found, sorted by distance):</h3><ul>` +
+    deduped.map(a => `<li><strong>${a.name}</strong>: ${a.address}, ${a.city}, ${a.state} ${a.postal} - ${a.distance} miles</li>`).join("") +
+    `</ul>`;
+}
   </script>
 </body>
 </html>
