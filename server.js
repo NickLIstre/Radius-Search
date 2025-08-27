@@ -1,11 +1,20 @@
 import express from "express";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Get __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Serve static files (index.html, styles.css, etc.)
+app.use(express.static(__dirname));
 
 app.use(express.json());
 
